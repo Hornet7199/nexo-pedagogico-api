@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: pedagogico-api
+
+  # Sem login por usuário/senha do Spring: a autenticação é só por JWT (JwtAuthFilter). Sem isto
+  # o Spring Security cria um usuário "user" com senha aleatória e a escreve no log do arranque.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+
+  # Carrega o .env local para o segredo do JWT e a senha do banco não precisarem estar
+  # exportados no shell. Opcional: em produção as variáveis vêm do ambiente.
+  config:
+    import:
+      - optional:file:./.env[.properties]
+
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5437/pedagogico_db}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USER:nexo_admin}
+    # Sem default de propósito: a senha vem do ambiente (.env, compose ou secret).
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      max-lifetime: 900000
+      connection-timeout: 10000
+      leak-detection-threshold: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: ${DDL_AUTO:update}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          # Agrupa INSERT/UPDATE numa só ida ao banco (ex.: salvar a chamada de uma turma
+          # inteira vira 1 roundtrip em vez de 30).
+          batch_size: 30
+          fetch_size: 100
+        order_inserts: true
+        order_updates: true
+        batch_versioned_data: true
+        default_batch_fetch_size: 25
+
+  # Escapa não-ASCII como \uXXXX no JSON — imune a double-encoding de charset
+  # (evita mojibake de acentos nas respostas da API); o client decodifica de volta.
+  jackson:
+    generator:
+      escape-non-ascii: true
+
+server:
+  port: ${PORT:8082}
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+nexo:
+  jwt:
+    # Sem default: o segredo vem SEMPRE do ambiente. Precisa ser o MESMO valor do
+    # usuario-api (NEXO_JWT_SECRET), que é quem emite o token. Gere com
+    # `openssl rand -base64 48` — veja o .env.example.
+    secret: ${NEXO_JWT_SECRET}
+  cors:
+    # Origem do dev-server Angular
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  auditoria:
+    # Dias de eventos de auditoria mantidos; o que for mais antigo é apagado às 03:30.
+    # 0 desliga.
+    retencao-dias: ${AUDITORIA_RETENCAO_DIAS:365}
+  seed:
+    # Dados de exemplo (turmas, notas, frequência…). Só em dev, e só em banco vazio.
+    enabled: ${NEXO_SEED_ENABLED:false}

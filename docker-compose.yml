@@ -1,0 +1,63 @@
+# Sobe o pedagogico-api com o Postgres dele.
+#
+#   cp .env.example .env     → preencha NEXO_JWT_SECRET e DB_PASSWORD
+#   docker compose up --build              → API em http://localhost:8082
+#   docker compose up -d postgres-pedagogico → só o banco (e a API via ./mvnw spring-boot:run)
+#   docker compose down -v                 → para e apaga o banco
+#
+# É um banco SEPARADO do usuario-api (outro container, outro volume, outra porta): as
+# tabelas alunos e professores existem nos dois, com formatos diferentes.
+name: nexo-pedagogico
+
+services:
+  postgres-pedagogico:
+    image: postgres:16-alpine
+    container_name: nexo-postgres-pedagogico
+    environment:
+      POSTGRES_USER: nexo_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      POSTGRES_DB: pedagogico_db
+    ports:
+      # 5437 no host (5436 é do banco do usuario-api). Só importa para quem roda a API fora
+      # do Docker; a API em container usa a rede interna.
+      - "127.0.0.1:${DB_HOST_PORT:-5437}:5432"
+    volumes:
+      - postgres_pedagogico_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexo_admin -d pedagogico_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  pedagogico-api:
+    build: .
+    image: nexo-pedagogico-api:local
+    container_name: nexo-pedagogico-api
+    depends_on:
+      postgres-pedagogico:
+        condition: service_healthy
+    ports:
+      - "${HOST_PORT:-8082}:8082"
+    environment:
+      # Dentro da rede do compose o banco é o serviço, não localhost.
+      DB_URL: jdbc:postgresql://postgres-pedagogico:5432/pedagogico_db
+      DB_USER: nexo_admin
+      DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      # O MESMO segredo do usuario-api, que emite o token — é o que faz o token valer aqui.
+      NEXO_JWT_SECRET: ${NEXO_JWT_SECRET:?defina NEXO_JWT_SECRET no .env (openssl rand -base64 48)}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      NEXO_SEED_ENABLED: ${NEXO_SEED_ENABLED:-false}
+    # Endurecimento do runtime: filesystem só de leitura (o único lugar que escreve é o
+    # /tmp do Tomcat, em tmpfs).
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+volumes:
+  postgres_pedagogico_data:

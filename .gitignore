@@ -1,0 +1,11 @@
+target/
+data/
+*.log
+.idea/
+*.iml
+.vscode/
+
+application-test.yml
+
+# Segredos locais
+.env
